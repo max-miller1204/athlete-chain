@@ -1,4 +1,4 @@
-# AthleteChain - Decentralized Athlete Contract Platform
+# AthleteChain
 
 AthleteChain is a blockchain-based platform that enables athletes, sponsors, teams, and agents to create, manage, and execute contracts securely and transparently. The platform uses Ethereum smart contracts to ensure trust, transparency, and automatic execution.
 
