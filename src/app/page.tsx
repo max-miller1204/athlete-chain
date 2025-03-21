@@ -25,7 +25,7 @@ export default function Home() {
             <div className="flex flex-col sm:flex-row justify-center gap-4">
               {!isConnected ? (
                 <button
-                  onClick={connectWallet}
+                  onClick={() => connectWallet()}
                   className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 
                              text-white text-lg font-bold py-3 px-8 rounded-lg shadow-lg transform hover:scale-105 transition duration-200"
                 >
@@ -209,7 +209,7 @@ export default function Home() {
             <div className="flex flex-col sm:flex-row justify-center gap-4">
               {!isConnected ? (
                 <button
-                  onClick={connectWallet}
+                  onClick={() => connectWallet()}
                   className="bg-white text-blue-700 hover:bg-blue-50 
                              text-lg font-bold py-3 px-8 rounded-lg shadow-lg transform hover:scale-105 transition duration-200"
                 >
