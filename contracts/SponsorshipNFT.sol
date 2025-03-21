@@ -38,7 +38,7 @@ contract SponsorshipNFT is ERC721URIStorage, ERC721Enumerable, AccessControl {
     function mintSponsorshipNFT(
         address to,
         uint256 contractId,
-        string memory tokenURI,
+        string memory newTokenURI,
         address athlete,
         address sponsor
     ) external returns (uint256) {
@@ -49,7 +49,7 @@ contract SponsorshipNFT is ERC721URIStorage, ERC721Enumerable, AccessControl {
         uint256 newTokenId = _tokenIds.current();
         
         _mint(to, newTokenId);
-        _setTokenURI(newTokenId, tokenURI);
+        _setTokenURI(newTokenId, newTokenURI);
         
         contractIdOf[newTokenId] = contractId;
         tokenIdOf[contractId] = newTokenId;
