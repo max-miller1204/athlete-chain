@@ -59,8 +59,15 @@ export default function Dashboard() {
           const athleteContract = new ethers.Contract(contractAddresses.athleteContractAddress, athleteContractAbi.abi, signer);
           
           try {
-            // Get user contracts - this operation might fail if the contract isn't deployed correctly
-            const contractIds = await factory.getUserContracts(account);
+            // Instead of calling a non-existent function, fetch all ContractCreated events
+            const filter = factory.filters.ContractCreated();
+            const events = await factory.queryFilter(filter);
+            const relevantEvents = events.filter(event => {
+              const athlete = event.args?.athlete;
+              const sponsor = event.args?.sponsor;
+              return athlete && sponsor && (athlete.toLowerCase() === account.toLowerCase() || sponsor.toLowerCase() === account.toLowerCase());
+            });
+            const contractIds = [...new Set(relevantEvents.map(event => event.args?.contractId.toString()))];
             
             // Attempt to get user info, but don't fail if this call doesn't work
             let isVerified = { isVerified: false };
@@ -84,7 +91,8 @@ export default function Dashboard() {
               try {
                 // Get contract details for each contract ID
                 const contractDetails = await Promise.all(
-                  contractIds.map(async (id: ethers.BigNumber) => {
+                  contractIds.map(async (idStr: string) => {
+                    const id = ethers.BigNumber.from(idStr);
                     try {
                       const details = await athleteContract.getContractDetails(id);
                       
@@ -98,46 +106,19 @@ export default function Dashboard() {
                         value: `${valueFormatted} ${details.paymentToken === ethers.constants.AddressZero ? 'ETH' : 'Tokens'}`,
                         status: contractStateToString(details.state),
                       };
-                    } catch (contractDetailError) {
-                      console.error(`Error fetching details for contract ${id.toString()}:`, contractDetailError);
-                      // Return a placeholder for failed contract
-                      return {
-                        id: id.toNumber(),
-                        athlete: account || '',
-                        sponsor: '0x0000000000000000000000000000000000000000',
-                        value: '0 ETH',
-                        status: 'Error',
-                      };
+                    } catch (error) {
+                      console.error(`Error fetching details for contract ${id.toString()}:`, error);
+                      return null;
                     }
                   })
                 );
-                
-                setContracts(contractDetails);
+                setContracts(contractDetails.filter((c): c is ContractSummary => c !== null));
               } catch (contractDetailsError) {
                 console.error("Error fetching contract details:", contractDetailsError);
-                setContracts([]);
               }
-            } else {
-              // No contracts found, set empty array
-              setContracts([]);
             }
-          } catch (contractError) {
-            console.error("Contract call error:", contractError);
-            
-            // Check if blockchain is deployed but user isn't registered
-            if (contractError && typeof contractError === 'object' && 'message' in contractError && 
-                typeof contractError.message === 'string' && contractError.message.includes("CALL_EXCEPTION")) {
-              console.error("You need to register on the platform first. Connect to the Hardhat node and make sure contracts are deployed.");
-            }
-            
-            // Set default values on error
-            setUserStats({
-              contractsCount: 0,
-              nftsCount: 0,
-              disputesCount: 0,
-              verificationStatus: 'Unverified',
-            });
-            setContracts([]);
+          } catch (err) {
+            console.error("Error fetching data:", err);
           }
         } catch (error) {
           console.error('Error connecting to contracts:', error);
@@ -209,7 +190,7 @@ export default function Dashboard() {
       <div className="flex flex-col md:flex-row justify-between items-start mb-8">
         <div>
           <h1 className="text-3xl font-bold text-blue-900">Dashboard</h1>
-          <p className="text-gray-600 mt-2">Welcome to your AthleteChain dashboard</p>
+          <p className="text-gray-600 mt-2">Create and manage your contracts</p>
         </div>
         <div className="mt-4 md:mt-0">
           <Link

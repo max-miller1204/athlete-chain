@@ -3,89 +3,48 @@ pragma solidity ^0.8.0;
 
 import "./AthleteContract.sol";
 import "./SponsorshipNFT.sol";
-import "@openzeppelin/contracts/access/AccessControl.sol";
 
 /**
  * @title AthleteChainFactory
  * @dev Factory contract for creating and managing athlete sponsorship contracts
  */
-contract AthleteChainFactory is AccessControl {
-    // Role definitions
-    bytes32 public constant ATHLETE_ROLE = keccak256("ATHLETE_ROLE");
-    bytes32 public constant SPONSOR_ROLE = keccak256("SPONSOR_ROLE");
-    bytes32 public constant AGENT_ROLE = keccak256("AGENT_ROLE");
-    bytes32 public constant TEAM_ROLE = keccak256("TEAM_ROLE");
-    bytes32 public constant ARBITRATOR_ROLE = keccak256("ARBITRATOR_ROLE");
-    
+contract AthleteChainFactory {
     // Contract instances
     AthleteContract public athleteContract;
     SponsorshipNFT public sponsorshipNFT;
     
-    // User info
-    struct UserInfo {
+    // User roles
+    bytes32 public constant ATHLETE_ROLE = keccak256("ATHLETE_ROLE");
+    bytes32 public constant SPONSOR_ROLE = keccak256("SPONSOR_ROLE");
+    bytes32 public constant AGENT_ROLE = keccak256("AGENT_ROLE");
+    bytes32 public constant ARBITRATOR_ROLE = keccak256("ARBITRATOR_ROLE");
+    bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
+
+    // User struct
+    struct User {
+        address userAddress;
         string name;
         string profileIPFSHash;
-        bool isVerified;
-        uint256[] contracts; // Contract IDs associated with the user
+        mapping(bytes32 => bool) roles;
+        bool verified;
     }
-    
-    // Mapping from address to user info
-    mapping(address => UserInfo) public userInfo;
-    
-    // Mapping from address to roles
-    mapping(address => bytes32[]) public userRoles;
-    
+
+    mapping(address => User) private _users;
+    mapping(address => bool) public isRegistered;
+    address public admin;
+
     // Events
-    event UserRegistered(address indexed user, bytes32 role);
     event ContractCreated(uint256 indexed contractId, address athlete, address sponsor);
     event NFTMinted(uint256 indexed tokenId, uint256 indexed contractId);
+    event UserRegistered(address indexed user, string name, string profileIPFSHash, bytes32 role);
+    event RoleAdded(address indexed user, bytes32 role);
+    event UserVerified(address indexed user);
     
     constructor() {
-        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        
         // Deploy child contracts
         athleteContract = new AthleteContract();
         sponsorshipNFT = new SponsorshipNFT();
-        
-        // Grant minter role to this contract
-        sponsorshipNFT.grantRole(keccak256("MINTER_ROLE"), address(this));
-    }
-    
-    /**
-     * @dev Register a new user
-     */
-    function registerUser(
-        address user,
-        bytes32 role,
-        string memory name,
-        string memory profileIPFSHash
-    ) external {
-        require(hasRole(DEFAULT_ADMIN_ROLE, msg.sender), "Admin role required");
-        require(!hasRole(role, user), "User already has this role");
-        
-        // Grant role on athlete contract
-        athleteContract.grantRole(role, user);
-        
-        // Grant role on this contract
-        _grantRole(role, user);
-        
-        // Store user info
-        UserInfo storage info = userInfo[user];
-        info.name = name;
-        info.profileIPFSHash = profileIPFSHash;
-        
-        // Add role to user roles
-        userRoles[user].push(role);
-        
-        emit UserRegistered(user, role);
-    }
-    
-    /**
-     * @dev Verify a user
-     */
-    function verifyUser(address user) external {
-        require(hasRole(DEFAULT_ADMIN_ROLE, msg.sender), "Admin role required");
-        userInfo[user].isVerified = true;
+        admin = msg.sender;
     }
     
     /**
@@ -101,12 +60,6 @@ contract AthleteChainFactory is AccessControl {
         address paymentToken,
         address[] memory arbitrators
     ) external returns (uint256) {
-        require(
-            hasRole(ATHLETE_ROLE, athlete) || hasRole(AGENT_ROLE, msg.sender),
-            "Only athlete or agent can create"
-        );
-        require(hasRole(SPONSOR_ROLE, sponsor), "Sponsor must have SPONSOR_ROLE");
-        
         uint256 contractId = athleteContract.createContract(
             athlete,
             sponsor,
@@ -117,15 +70,6 @@ contract AthleteChainFactory is AccessControl {
             paymentToken,
             arbitrators
         );
-        
-        // Add contract to user's contracts
-        userInfo[athlete].contracts.push(contractId);
-        userInfo[sponsor].contracts.push(contractId);
-        
-        // Add contract to agent's contracts if applicable
-        if (hasRole(AGENT_ROLE, msg.sender) && msg.sender != athlete && msg.sender != sponsor) {
-            userInfo[msg.sender].contracts.push(contractId);
-        }
         
         emit ContractCreated(contractId, athlete, sponsor);
         
@@ -151,8 +95,8 @@ contract AthleteChainFactory is AccessControl {
         ) = athleteContract.getContractDetails(contractId);
         
         require(
-            msg.sender == athlete || msg.sender == sponsor || hasRole(AGENT_ROLE, msg.sender),
-            "Only athlete, sponsor or agent can mint"
+            msg.sender == athlete || msg.sender == sponsor,
+            "Only athlete or sponsor can mint"
         );
         
         uint256 tokenId = sponsorshipNFT.mintSponsorshipNFT(
@@ -166,27 +110,6 @@ contract AthleteChainFactory is AccessControl {
         emit NFTMinted(tokenId, contractId);
         
         return tokenId;
-    }
-    
-    /**
-     * @dev Get all contracts for a user
-     */
-    function getUserContracts(address user) external view returns (uint256[] memory) {
-        return userInfo[user].contracts;
-    }
-    
-    /**
-     * @dev Check if user has a specific role
-     */
-    function hasUserRole(address user, bytes32 role) external view returns (bool) {
-        return hasRole(role, user);
-    }
-    
-    /**
-     * @dev Get all roles for a user
-     */
-    function getUserRoles(address user) external view returns (bytes32[] memory) {
-        return userRoles[user];
     }
     
     /**
@@ -204,13 +127,52 @@ contract AthleteChainFactory is AccessControl {
     ) {
         return athleteContract.getContractDetails(contractId);
     }
-    
-    /**
-     * @dev Update user profile
-     */
-    function updateUserProfile(string memory name, string memory profileIPFSHash) external {
-        UserInfo storage info = userInfo[msg.sender];
-        info.name = name;
-        info.profileIPFSHash = profileIPFSHash;
+
+    // Register user (self or admin)
+    function registerUser(address user, bytes32 role, string memory name, string memory profileIPFSHash) public {
+        require(!isRegistered[user], "Already registered");
+        require(
+            msg.sender == user || msg.sender == admin,
+            "Only self or admin can register"
+        );
+        User storage u = _users[user];
+        u.userAddress = user;
+        u.name = name;
+        u.profileIPFSHash = profileIPFSHash;
+        u.roles[role] = true;
+        u.verified = false;
+        isRegistered[user] = true;
+        emit UserRegistered(user, name, profileIPFSHash, role);
+    }
+
+    // Add role to user (admin only)
+    function addRole(address user, bytes32 role) public onlyAdmin {
+        require(isRegistered[user], "User not registered");
+        _users[user].roles[role] = true;
+        emit RoleAdded(user, role);
+    }
+
+    // Verify user (admin only)
+    function verifyUser(address user) public onlyAdmin {
+        require(isRegistered[user], "User not registered");
+        _users[user].verified = true;
+        emit UserVerified(user);
+    }
+
+    // Check if user has a role
+    function isUserInRole(address user, bytes32 role) public view returns (bool) {
+        return _users[user].roles[role];
+    }
+
+    // Get user info
+    function getUser(address user) public view returns (string memory name, string memory profileIPFSHash, bool verified) {
+        User storage u = _users[user];
+        return (u.name, u.profileIPFSHash, u.verified);
+    }
+
+    // Modifiers
+    modifier onlyAdmin() {
+        require(msg.sender == admin, "Only admin");
+        _;
     }
 } 

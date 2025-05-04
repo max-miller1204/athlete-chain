@@ -1,0 +1,1 @@
+cd athlete-chain && node -e "const fs = require('fs'); const ethers = require('ethers'); const provider = new ethers.providers.JsonRpcProvider('http://localhost:8545'); (async () => { const accounts = await provider.listAccounts(); console.log('Available accounts:'); accounts.forEach((acc, i) => console.log(`${i}: ${acc}`)); })().catch(console.error)"

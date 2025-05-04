@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useWeb3 } from '../../context/Web3Context';
 import ContractCard from '../../components/ContractCard';
 import Link from 'next/link';
@@ -67,8 +67,13 @@ export default function ContractsPage() {
 
   const [success, setSuccess] = useState<string | null>(null);
 
+  const fetchInProgress = useRef(false);
+  const lastFetchedAccount = useRef<string | null>(null);
+
   // Function to fetch contracts data
   const fetchContractsData = async () => {
+    if (fetchInProgress.current) return;
+    fetchInProgress.current = true;
     setLoading(true);
     setError(null);
     
@@ -77,124 +82,161 @@ export default function ContractsPage() {
     console.log("Account:", account);
     console.log("Provider initialized:", !!provider);
     
-    if (isConnected && account && provider) {
-      try {
-        // Connect to contracts
-        console.log("Connecting to contracts with addresses:", contractAddresses);
-        const signer = provider.getSigner();
-        const factory = new ethers.Contract(contractAddresses.factoryAddress, factoryAbi.abi, signer);
-        const athleteContract = new ethers.Contract(contractAddresses.athleteContractAddress, athleteContractAbi.abi, signer);
+    try {
+      if (isConnected && account && provider) {
+        // Only fetch if account changed
+        if (lastFetchedAccount.current === account) {
+          fetchInProgress.current = false;
+          return;
+        }
+        lastFetchedAccount.current = account;
+        
+        // Check network first
+        const network = await provider.getNetwork();
+        const validChainIds = [31337, 1337]; // Hardhat default and local network
+        
+        if (!validChainIds.includes(network.chainId)) {
+          setError(`Please connect to your local development network (Chain ID: 1337 or 31337). Current network: ${network.name} (Chain ID: ${network.chainId})`);
+          setContracts([]);
+          setLoading(false);
+          return;
+        }
         
         try {
-          console.log("Fetching contracts for address:", account);
-          // Get user contracts - this might fail if contract is not deployed correctly
-          const contractIds = await factory.getUserContracts(account);
-          console.log("Contract IDs:", contractIds, "Length:", contractIds.length);
+          // Connect to contracts
+          console.log("Connecting to contracts with addresses:", contractAddresses);
+          const signer = provider.getSigner();
+          const factory = new ethers.Contract(contractAddresses.factoryAddress, factoryAbi.abi, signer);
+          const athleteContract = new ethers.Contract(contractAddresses.athleteContractAddress, athleteContractAbi.abi, signer);
           
-          // If we have contract IDs, fetch their details
-          if (contractIds && contractIds.length > 0) {
-            try {
-              // Get contract details for each contract ID
-              console.log("Mapping over contract IDs to get details");
-              const contractDetails = await Promise.all(
-                contractIds.map(async (id: ethers.BigNumber) => {
-                  try {
-                    console.log("Fetching details for contract ID:", id.toString());
-                    const details = await athleteContract.getContractDetails(id);
-                    console.log("Got details for contract:", id.toString(), details);
-                    
-                    // Format contract total value to ETH or token
-                    const valueFormatted = ethers.utils.formatEther(details.totalValue);
-                    
-                    return {
-                      id: id.toNumber(),
-                      athlete: details.athlete,
-                      sponsor: details.sponsor,
-                      value: `${valueFormatted} ${details.paymentToken === ethers.constants.AddressZero ? 'ETH' : 'Tokens'}`,
-                      status: contractStateToString(details.state),
-                      startDate: timestampToDate(details.startDate),
-                      endDate: timestampToDate(details.endDate),
-                      contractHash: details.contractIPFSHash,
-                    };
-                  } catch (detailError) {
-                    console.error(`Error fetching details for contract ${id.toString()}:`, detailError);
-                    // Return a placeholder for failed contract
-                    return {
-                      id: id.toNumber(),
-                      athlete: account || '',
-                      sponsor: '0x0000000000000000000000000000000000000000',
-                      value: '0 ETH',
-                      status: 'Error',
-                      startDate: '',
-                      endDate: '',
-                      contractHash: '',
-                    };
-                  }
-                })
-              );
-              
-              console.log("Final contract details:", contractDetails);
-              setContracts(contractDetails);
-            } catch (detailsError) {
-              console.error("Error fetching contract details:", detailsError);
-              setError("Error fetching contract details. Check console for more information.");
+          try {
+            console.log("Fetching contracts for address:", account);
+            
+            // Get all ContractCreated events
+            const filter = factory.filters.ContractCreated();
+            const events = await factory.queryFilter(filter);
+            
+            // Filter events in memory where the user is either athlete or sponsor
+            const relevantEvents = events.filter(event => {
+              const athlete = event.args?.athlete;
+              const sponsor = event.args?.sponsor;
+              return athlete === account || sponsor === account;
+            });
+            
+            // Get unique contract IDs
+            const contractIds = [...new Set(
+              relevantEvents.map(event => event.args?.contractId).filter(Boolean)
+            )];
+            
+            console.log("Contract IDs:", contractIds, "Length:", contractIds.length);
+            
+            // If we have contract IDs, fetch their details
+            if (contractIds && contractIds.length > 0) {
+              try {
+                // Get contract details for each contract ID
+                console.log("Mapping over contract IDs to get details");
+                const contractDetails = await Promise.all(
+                  contractIds.map(async (id) => {
+                    try {
+                      console.log("Fetching details for contract ID:", id.toString());
+                      const details = await athleteContract.getContractDetails(id);
+                      console.log("Got details for contract:", id.toString(), details);
+                      
+                      // Format contract total value to ETH or token
+                      const valueFormatted = ethers.utils.formatEther(details.totalValue);
+                      
+                      return {
+                        id: id.toNumber(),
+                        athlete: details.athlete,
+                        sponsor: details.sponsor,
+                        value: `${valueFormatted} ${details.paymentToken === ethers.constants.AddressZero ? 'ETH' : 'Tokens'}`,
+                        status: contractStateToString(details.state),
+                        startDate: timestampToDate(details.startDate),
+                        endDate: timestampToDate(details.endDate),
+                        contractHash: details.contractIPFSHash,
+                      };
+                    } catch (detailError) {
+                      console.error(`Error fetching details for contract ${id.toString()}:`, detailError);
+                      // Return a placeholder for failed contract
+                      return {
+                        id: id.toNumber(),
+                        athlete: account || '',
+                        sponsor: '0x0000000000000000000000000000000000000000',
+                        value: '0 ETH',
+                        status: 'Error',
+                        startDate: '',
+                        endDate: '',
+                        contractHash: '',
+                      };
+                    }
+                  })
+                );
+                
+                console.log("Final contract details:", contractDetails);
+                setContracts(contractDetails);
+              } catch (detailsError) {
+                console.error("Error fetching contract details:", detailsError);
+                setError("Error fetching contract details. Check console for more information.");
+                setContracts([]);
+              }
+            } else {
+              // No contracts found
+              console.log("No contracts found for this account");
               setContracts([]);
             }
-          } else {
-            // No contracts found
-            console.log("No contracts found for this account. This could be because:");
-            console.log("1. You haven't created any contracts yet");
-            console.log("2. Your contracts are associated with a different account");
-            console.log("3. There's an issue with the contract deployment");
+          } catch (contractError) {
+            console.error("Contract call error:", contractError);
+            setError("Error fetching contracts: " + (contractError instanceof Error ? contractError.message : String(contractError)));
             setContracts([]);
           }
-        } catch (contractError) {
-          console.error("Contract call error:", contractError);
-          
-          // Check if blockchain is deployed but user isn't registered
-          if (contractError && typeof contractError === 'object' && 'message' in contractError && 
-              typeof contractError.message === 'string' && contractError.message.includes("CALL_EXCEPTION")) {
-            setError("You need to register on the platform first. Connect to the Hardhat node and make sure contracts are deployed.");
-          } else {
-            setError("Error fetching contracts: " + (contractError instanceof Error ? contractError.message : String(contractError)));
-          }
-          
+        } catch (error) {
+          console.error('Error connecting to contracts:', error);
+          setError("Error connecting to smart contracts. Make sure your wallet is connected to the correct network.");
           setContracts([]);
         }
-      } catch (error) {
-        console.error('Error connecting to contracts:', error);
-        setError("Error connecting to smart contracts. Make sure your wallet is connected to the correct network.");
+      } else {
+        console.log("Not ready to fetch contracts yet - missing wallet connection or provider");
         setContracts([]);
-      } finally {
-        setLoading(false);
-        console.log("=== END FETCH CONTRACTS DEBUG ===");
       }
-    } else {
-      console.log("Not ready to fetch contracts yet - missing wallet connection or provider");
+    } catch (outerError) {
+      console.error("Unexpected error in fetchContractsData:", outerError);
+      setError("An unexpected error occurred. Please try again.");
+      setContracts([]);
+    } finally {
       setLoading(false);
+      fetchInProgress.current = false;
+      console.log("=== END FETCH CONTRACTS DEBUG ===");
     }
   };
 
   // Only fetch contracts when the component mounts or when account changes
   useEffect(() => {
-    // Use a ref to prevent excessive calls
+    if (!account) return;
+    if (lastFetchedAccount.current === account) return;
     let mounted = true;
-    
-    if (mounted) {
-      fetchContractsData();
-    }
-    
+    const fetchData = async () => {
+      if (!mounted) return;
+      setLoading(true);
+      try {
+        await fetchContractsData();
+      } catch (error) {
+        console.error("Error in fetchContractsData:", error);
+        if (mounted) {
+          setLoading(false);
+          setError("Failed to load contracts. Please try refreshing the page.");
+        }
+      }
+    };
+    fetchData();
     return () => {
       mounted = false;
     };
-    // Completely remove all dependencies to prevent refresh loops
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [account]); // Only re-run when account changes
 
   // Filter contracts based on status
   const filteredContracts = filter === 'all' 
     ? contracts 
-    : contracts.filter(contract => contract.status.toLowerCase() === filter);
+    : contracts.filter(contract => contract.status.toLowerCase() === filter.toLowerCase());
 
   if (!isConnected) {
     return (

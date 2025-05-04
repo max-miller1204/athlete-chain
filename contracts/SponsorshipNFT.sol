@@ -3,19 +3,15 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
-import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
 
 /**
  * @title SponsorshipNFT
  * @dev NFT contract for representing athlete sponsorship deals as NFTs
  */
-contract SponsorshipNFT is ERC721URIStorage, ERC721Enumerable, AccessControl {
+contract SponsorshipNFT is ERC721URIStorage, ERC721Enumerable {
     using Counters for Counters.Counter;
     Counters.Counter private _tokenIds;
-    
-    // Role definitions
-    bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
     
     // Mapping from token ID to contract ID
     mapping(uint256 => uint256) public contractIdOf;
@@ -27,10 +23,7 @@ contract SponsorshipNFT is ERC721URIStorage, ERC721Enumerable, AccessControl {
     event SponsorshipNFTMinted(uint256 indexed tokenId, uint256 indexed contractId, address athlete, address sponsor);
     event RoyaltyPaid(uint256 indexed tokenId, address recipient, uint256 amount);
     
-    constructor() ERC721("Athlete Sponsorship", "ASPON") {
-        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        _grantRole(MINTER_ROLE, msg.sender);
-    }
+    constructor() ERC721("Athlete Sponsorship", "ASPON") {}
     
     /**
      * @dev Mint a new NFT for a sponsorship contract
@@ -42,7 +35,6 @@ contract SponsorshipNFT is ERC721URIStorage, ERC721Enumerable, AccessControl {
         address athlete,
         address sponsor
     ) external returns (uint256) {
-        require(hasRole(MINTER_ROLE, msg.sender), "Caller is not a minter");
         require(tokenIdOf[contractId] == 0, "NFT already minted for this contract");
         
         _tokenIds.increment();
@@ -105,7 +97,7 @@ contract SponsorshipNFT is ERC721URIStorage, ERC721Enumerable, AccessControl {
     function supportsInterface(bytes4 interfaceId)
         public
         view
-        override(ERC721, ERC721Enumerable, AccessControl)
+        override(ERC721, ERC721Enumerable)
         returns (bool)
     {
         return super.supportsInterface(interfaceId);

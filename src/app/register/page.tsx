@@ -8,21 +8,22 @@ import contractAddresses from '../../contract-addresses.json';
 import factoryAbi from '../../artifacts/contracts/AthleteChainFactory.sol/AthleteChainFactory.json';
 
 export default function RegisterPage() {
-  const { isConnected, account, provider } = useWeb3();
+  const { isConnected, account, provider, connectWallet } = useWeb3();
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  
-  // Form state
+  const [walletType, setWalletType] = useState('metamask');
+  const [registering, setRegistering] = useState(false);
+  const [walletError, setWalletError] = useState<string | null>(null);
+
   const [formData, setFormData] = useState({
     address: '',
     name: '',
-    role: 'SPONSOR_ROLE', // Default to sponsor
-    profileIPFSHash: 'ipfs://QmPlaceholderHash' // Placeholder for now
+    role: 'SPONSOR_ROLE',
+    profileIPFSHash: 'ipfs://QmPlaceholderHash'
   });
 
-  // Handle form input changes
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData({
@@ -31,24 +32,21 @@ export default function RegisterPage() {
     });
   };
 
-  // Submit form
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
     setError(null);
     setSuccess(null);
-    
+
     try {
       if (!isConnected || !account || !provider) {
         throw new Error("Wallet not connected");
       }
-      
-      // Ensure address is valid
+
       if (!ethers.utils.isAddress(formData.address)) {
         throw new Error("Invalid address format");
       }
-      
-      // Convert role string to bytes32
+
       let roleBytes;
       switch(formData.role) {
         case 'ATHLETE_ROLE':
@@ -66,28 +64,24 @@ export default function RegisterPage() {
         default:
           throw new Error("Invalid role");
       }
-      
-      // Connect to factory contract
+
       const signer = provider.getSigner();
       const factory = new ethers.Contract(contractAddresses.factoryAddress, factoryAbi.abi, signer);
-      
-      // Register user
+
       const tx = await factory.registerUser(
         formData.address,
         roleBytes,
         formData.name,
         formData.profileIPFSHash
       );
-      
+
       await tx.wait();
-      
-      // Verify user
+
       const verifyTx = await factory.verifyUser(formData.address);
       await verifyTx.wait();
-      
+
       setSuccess(`User ${formData.address} successfully registered as ${formData.role}`);
-      
-      // Reset form
+
       setFormData({
         address: '',
         name: '',
@@ -103,15 +97,58 @@ export default function RegisterPage() {
     }
   };
 
+  const handleConnectWallet = async () => {
+    setWalletError(null);
+    try {
+      await connectWallet(walletType, true);
+    } catch (error: any) {
+      setWalletError(error.message || 'Failed to connect wallet');
+      console.error('Failed to connect wallet:', error);
+    }
+  };
+
   if (!isConnected) {
     return (
       <div className="flex flex-col items-center justify-center py-20">
-        <div className="bg-white p-8 rounded-xl shadow-lg max-w-md w-full text-center">
-          <svg className="h-16 w-16 text-blue-600 mx-auto mb-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-          </svg>
-          <h2 className="text-2xl font-bold text-gray-800 mb-4">Wallet Not Connected</h2>
-          <p className="text-gray-600 mb-8">Please connect your wallet to register users.</p>
+        <div className="bg-white p-8 rounded-xl shadow-lg max-w-md w-full">
+          <h2 className="text-2xl font-bold text-center text-blue-900 mb-6">Connect Your Wallet</h2>
+          <p className="text-gray-600 mb-8 text-center">
+            Connect your wallet to register as an athlete, sponsor, or agent on AthleteChain.
+          </p>
+          
+          {walletError && (
+            <div className="mb-6 bg-red-50 border border-red-200 text-red-800 rounded-lg p-4">
+              <div className="flex">
+                <svg className="h-5 w-5 text-red-600 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p>{walletError}</p>
+              </div>
+            </div>
+          )}
+          
+          <div className="space-y-6">
+            <div>
+              <label htmlFor="walletType" className="block text-sm font-medium text-gray-700 mb-1">
+                Wallet Type
+              </label>
+              <select
+                id="walletType"
+                value={walletType}
+                onChange={(e) => setWalletType(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="metamask">MetaMask</option>
+                <option value="walletconnect">WalletConnect</option>
+              </select>
+            </div>
+            <button
+              onClick={handleConnectWallet}
+              className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-lg w-full"
+            >
+              Connect Wallet
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -135,7 +172,7 @@ export default function RegisterPage() {
             </div>
           </div>
         )}
-        
+
         {success && (
           <div className="mb-6 bg-green-50 border border-green-200 text-green-800 rounded-lg p-4">
             <div className="flex">
@@ -146,7 +183,7 @@ export default function RegisterPage() {
             </div>
           </div>
         )}
-        
+
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
             <label htmlFor="address" className="block text-sm font-medium text-gray-700 mb-1">
@@ -163,7 +200,7 @@ export default function RegisterPage() {
               required
             />
           </div>
-          
+
           <div>
             <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
               User Name
@@ -179,7 +216,7 @@ export default function RegisterPage() {
               required
             />
           </div>
-          
+
           <div>
             <label htmlFor="role" className="block text-sm font-medium text-gray-700 mb-1">
               Role
@@ -198,7 +235,7 @@ export default function RegisterPage() {
               <option value="ARBITRATOR_ROLE">Arbitrator</option>
             </select>
           </div>
-          
+
           <div className="pt-4">
             <button
               type="submit"
@@ -220,7 +257,7 @@ export default function RegisterPage() {
           </div>
         </form>
       </div>
-      
+
       <div className="mt-8 bg-blue-50 border border-blue-200 rounded-lg p-6">
         <h2 className="text-lg font-bold text-blue-900 mb-2">About Roles</h2>
         <p className="text-blue-800 mb-4">
@@ -235,4 +272,4 @@ export default function RegisterPage() {
       </div>
     </div>
   );
-} 
+}

@@ -1,137 +1,233 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, ReactNode, useRef } from 'react';
 import { ethers } from 'ethers';
 import factoryAbi from '../artifacts/contracts/AthleteChainFactory.sol/AthleteChainFactory.json';
+import contractAddresses from '../contract-addresses.json';
 
 interface Web3ContextType {
   account: string | null;
   chainId: number | null;
-  connectWallet: (forceAccountSelection?: boolean) => Promise<void>;
+  connectWallet: (walletType: string, forceAccountSelection?: boolean) => Promise<void>;
   disconnectWallet: () => void;
   factoryContract: ethers.Contract | null;
   provider: ethers.providers.Web3Provider | null;
   isConnected: boolean;
 }
 
-const Web3Context = createContext<Web3ContextType>({
-  account: null,
-  chainId: null,
-  connectWallet: async () => {},
-  disconnectWallet: () => {},
-  factoryContract: null,
-  provider: null,
-  isConnected: false,
-});
+const Web3Context = createContext<Web3ContextType | undefined>(undefined);
 
-export const useWeb3 = () => useContext(Web3Context);
-
-export const Web3Provider = ({ children, factoryAddress }: { children: ReactNode, factoryAddress: string }) => {
+export const Web3Provider = ({ children }: { children: ReactNode }) => {
   const [account, setAccount] = useState<string | null>(null);
   const [chainId, setChainId] = useState<number | null>(null);
   const [provider, setProvider] = useState<ethers.providers.Web3Provider | null>(null);
   const [factoryContract, setFactoryContract] = useState<ethers.Contract | null>(null);
   const [forceReconnect, setForceReconnect] = useState(0);
+  const verificationStartedRef = useRef(false);
 
-  const connectWallet = async (forceAccountSelection = false) => {
-    if (typeof window.ethereum !== 'undefined') {
-      try {
-        // Clear the disconnected flag when attempting to connect
-        const disconnectTime = localStorage.getItem('wallet-disconnect-time');
-        const wasDisconnected = localStorage.getItem('wallet-disconnected') === 'true';
-        
-        // Always force account selection if user previously disconnected
-        if (wasDisconnected) {
-          forceAccountSelection = true;
+  const connectWallet = async (walletType: string, forceAccountSelection = false) => {
+    try {
+      let provider;
+      if (walletType === 'metamask') {
+        if (typeof window.ethereum !== 'undefined') {
+          // Request accounts explicitly
+          try {
+            // Set a timeout for the wallet connection request
+            const requestAccountsPromise = new Promise(async (resolve, reject) => {
+              const timeoutId = setTimeout(() => {
+                reject(new Error('Connection request timed out. Please try again.'));
+              }, 15000); // 15 second timeout
+              
+              try {
+                // Request permission to access accounts
+                if (forceAccountSelection) {
+                  await window.ethereum.request({
+                    method: 'wallet_requestPermissions',
+                    params: [{ eth_accounts: {} }]
+                  });
+                }
+                
+                // Request access to accounts
+                const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+                clearTimeout(timeoutId);
+                resolve(accounts);
+              } catch (error) {
+                clearTimeout(timeoutId);
+                reject(error);
+              }
+            });
+            
+            await requestAccountsPromise;
+            
+            // Initialize provider
+            provider = new ethers.providers.Web3Provider(window.ethereum);
+          } catch (requestError: any) {
+            throw new Error(`MetaMask account request failed: ${requestError.message || 'User rejected the request'}`);
+          }
+        } else {
+          throw new Error('MetaMask is not installed');
         }
-        
-        // Remove disconnection flags
-        localStorage.removeItem('wallet-disconnected');
-        localStorage.removeItem('wallet-disconnect-time');
-        
-        // First disconnect completely to ensure a clean state
-        if (forceAccountSelection) {
-          // Remove the account to ensure MetaMask knows we want a fresh connection
-          await window.ethereum.request({
-            method: 'wallet_requestPermissions',
-            params: [{ eth_accounts: {} }]
+      } else if (walletType === 'walletconnect') {
+        try {
+          const WalletConnectProvider = (await import('@walletconnect/web3-provider')).default;
+          const walletConnectProvider = new WalletConnectProvider({
+            infuraId: 'YOUR_INFURA_ID' // Replace with your Infura ID
           });
+          await walletConnectProvider.enable();
+          provider = new ethers.providers.Web3Provider(walletConnectProvider);
+        } catch (wcError: any) {
+          throw new Error(`WalletConnect initialization failed: ${wcError.message || 'Unknown error'}`);
+        }
+      } else {
+        throw new Error('Unsupported wallet type');
+      }
+
+      try {
+        // Get accounts and network information
+        const accounts = await provider.listAccounts();
+        
+        if (!accounts || accounts.length === 0) {
+          throw new Error('No accounts found. Please make sure your wallet is unlocked and connected.');
         }
         
-        // Request account access
-        const accounts = await window.ethereum.request({ 
-          method: 'eth_requestAccounts'
-        });
-        
-        const provider = new ethers.providers.Web3Provider(window.ethereum);
         const network = await provider.getNetwork();
         
-        setAccount(accounts[0]);
-        setChainId(network.chainId);
-        setProvider(provider);
-
-        // Create contract instance
+        // Create contract instances
         const signer = provider.getSigner();
-        const factory = new ethers.Contract(factoryAddress, factoryAbi.abi, signer);
-        setFactoryContract(factory);
-      } catch (error) {
-        console.error('Error connecting to wallet:', error);
+        
+        // Check if contract addresses are valid
+        if (!contractAddresses.factoryAddress || !ethers.utils.isAddress(contractAddresses.factoryAddress)) {
+          console.warn('Invalid factory contract address. Proceeding without contract functionality.');
+        }
+        
+        try {
+          const factory = new ethers.Contract(contractAddresses.factoryAddress, factoryAbi.abi, signer);
+          setFactoryContract(factory);
+
+          // Set account and chain ID
+          setChainId(network.chainId);
+          setProvider(provider);
+          // Only set account if different
+          setAccount(prev => {
+            if (prev !== accounts[0]) {
+              return accounts[0];
+            }
+            return prev;
+          });
+          setFactoryContract(factory);
+          // Only call verifyContract after all are set
+          if (accounts[0] && factory && provider) {
+            if (!verificationStartedRef.current) {
+              verificationStartedRef.current = true;
+              verifyContract().then((success) => {
+                if (!success) {
+                  console.log('Contract verification failed - some features may be limited');
+                }
+              }).catch(() => {
+                console.log('Unexpected error during contract verification');
+              });
+            }
+          }
+        } catch (contractError: any) {
+          console.warn('Contract initialization failed, proceeding with limited functionality:', contractError);
+        }
+        
+        // Clear disconnected flag
+        localStorage.removeItem('wallet-disconnected');
+      } catch (providerError: any) {
+        throw new Error(`Error accessing wallet data: ${providerError.message || 'Unknown error'}`);
       }
-    } else {
-      console.error('Please install MetaMask!');
+    } catch (error: any) {
+      console.error('Error connecting to wallet:', error);
+      throw error; // Re-throw to allow components to handle the error
     }
   };
 
-  // Disconnect wallet function with improved security
   const disconnectWallet = () => {
     setAccount(null);
     setChainId(null);
     setProvider(null);
     setFactoryContract(null);
-    
-    // Store disconnected state and timestamp in local storage
     localStorage.setItem('wallet-disconnected', 'true');
-    // Store timestamp of disconnect to enforce re-authentication
     localStorage.setItem('wallet-disconnect-time', Date.now().toString());
-    
-    // Increment force reconnect counter to trigger a clean reconnect if needed
     setForceReconnect(prev => prev + 1);
   };
 
+  const verifyContract = async () => {
+    if (!provider || !factoryContract || !account) {
+      console.warn('verifyContract: provider, factoryContract, or account is null');
+      return false;
+    }
+    try {
+      // First check if we're on the correct network
+      const network = await provider.getNetwork();
+      const expectedChainId = process.env.NEXT_PUBLIC_CHAIN_ID || '31337'; // Default to Hardhat
+      // Allow both 31337 (Hardhat default) and 1337 (local network) for development
+      const validChainIds = ['31337', '1337'];
+      if (!validChainIds.includes(network.chainId.toString())) {
+        console.warn(`Connected to wrong network. Expected chainId: ${validChainIds.join(' or ')}, got: ${network.chainId}`);
+        return false;
+      }
+      // Check if contract code exists
+      const code = await provider.getCode(contractAddresses.factoryAddress);
+      if (code === '0x') {
+        console.warn('No contract code found at the specified address');
+        return false;
+      }
+      // Try to call a view function with increased timeout
+      const contractVerificationPromise = Promise.race([
+        factoryContract.isUserInRole(account, ethers.utils.keccak256(ethers.utils.toUtf8Bytes("ATHLETE_ROLE"))),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Contract verification timed out')), 30000) // 30 second timeout
+        )
+      ]);
+      await contractVerificationPromise;
+      console.log('Contract verification completed successfully');
+      return true;
+    } catch (verifyError: any) {
+      // Don't log timeout errors as warnings since they're expected in some cases
+      if (verifyError.message !== 'Contract verification timed out') {
+        console.warn(
+          'Contract verification warning:',
+          verifyError.message || 'Unknown error',
+          'Code may not be deployed on this network or network conditions may be slow'
+        );
+      }
+      return false;
+    }
+  };
+
   useEffect(() => {
-    // Check if user manually disconnected previously
     const isDisconnected = localStorage.getItem('wallet-disconnected') === 'true';
-    
-    // Only try to auto-connect if not manually disconnected
     if (!isDisconnected && typeof window.ethereum !== 'undefined') {
       window.ethereum.request({ method: 'eth_accounts' })
         .then((accounts: string[]) => {
           if (accounts.length > 0) {
-            connectWallet();
+            connectWallet('metamask');
           }
         })
         .catch((err: any) => console.error(err));
 
-      // Listen for account changes
       window.ethereum.on('accountsChanged', (accounts: string[]) => {
         if (accounts.length > 0) {
-          // Clear disconnected flag when accounts change
           localStorage.removeItem('wallet-disconnected');
-          // Reconnect with the new account
-          setAccount(accounts[0]);
+          setAccount(prev => {
+            if (prev !== accounts[0]) {
+              return accounts[0];
+            }
+            return prev;
+          });
           if (provider) {
             const signer = provider.getSigner();
-            const factory = new ethers.Contract(factoryAddress, factoryAbi.abi, signer);
+            const factory = new ethers.Contract(contractAddresses.factoryAddress, factoryAbi.abi, signer);
             setFactoryContract(factory);
           }
         } else {
-          // MetaMask was locked or user has removed accounts
           setAccount(null);
           setFactoryContract(null);
         }
       });
 
-      // Listen for chain changes
       window.ethereum.on('chainChanged', () => {
         window.location.reload();
       });
@@ -142,7 +238,7 @@ export const Web3Provider = ({ children, factoryAddress }: { children: ReactNode
         window.ethereum.removeAllListeners();
       }
     };
-  }, [provider, factoryAddress, forceReconnect]);
+  }, [provider, forceReconnect]);
 
   return (
     <Web3Context.Provider value={{ 
@@ -159,9 +255,17 @@ export const Web3Provider = ({ children, factoryAddress }: { children: ReactNode
   );
 };
 
+export const useWeb3 = () => {
+  const context = useContext(Web3Context);
+  if (context === undefined) {
+    throw new Error('useWeb3 must be used within a Web3Provider');
+  }
+  return context;
+};
+
 // Add types for window.ethereum
 declare global {
   interface Window {
     ethereum: any;
   }
-} 
+}

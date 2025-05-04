@@ -245,7 +245,8 @@ export default function NewContractPage() {
         arbitrators
       });
       
-      const createTx = await athleteContract.createContract(
+      // Use factory contract to create the contract instead of athlete contract directly
+      const createTx = await factory.createSponsorshipContract(
         account, // athlete (current user)
         formData.sponsorAddress, // sponsor
         contractIPFSHash,
