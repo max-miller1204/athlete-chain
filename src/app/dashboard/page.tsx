@@ -31,7 +31,7 @@ const contractStateToString = (state: number): string => {
 };
 
 export default function Dashboard() {
-  const { account, factoryContract, provider, isConnected } = useWeb3();
+  const { account, provider, isConnected } = useWeb3();
   const [userStats, setUserStats] = useState<UserStats>({
     contractsCount: 0,
     nftsCount: 0,

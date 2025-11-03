@@ -14,8 +14,27 @@ export default function ContractDetailsPage() {
   const { provider, isConnected, account } = useWeb3();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [contract, setContract] = useState<any>(null);
-  const [milestones, setMilestones] = useState<any[]>([]);
+  const [contract, setContract] = useState<{
+    id: string;
+    athlete: string;
+    sponsor: string;
+    value: string;
+    status: string;
+    stateNum: number;
+    startDate: string;
+    endDate: string;
+    contractHash: string;
+    paymentToken: string;
+    raw: unknown;
+  } | null>(null);
+  const [milestones, setMilestones] = useState<{
+    description: string;
+    amount: string;
+    deadline: string;
+    status: number | string;
+    evidence: string;
+    paid: boolean;
+  }[]>([]);
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const fetchInProgress = useRef(false);
@@ -34,16 +53,6 @@ export default function ContractDetailsPage() {
     const date = new Date(timestamp.toNumber() * 1000);
     return date.toISOString().split("T")[0];
   };
-
-  // Show wallet not connected message
-  if (!isConnected || !provider) {
-    return (
-      <div className="max-w-xl mx-auto py-20 text-center">
-        <p className="text-blue-900 font-bold mb-4">Please connect your wallet to view contract details.</p>
-        <Link href="/contracts" className="text-blue-600 hover:underline">Back to Contracts</Link>
-      </div>
-    );
-  }
 
   // Fetch contract details
   const fetchContract = async () => {
@@ -102,8 +111,9 @@ export default function ContractDetailsPage() {
         });
       }
       setMilestones(ms);
-    } catch (err: any) {
-      setError(`Contract not found or error fetching details.\nError: ${err && (err.reason || err.message || err.toString())}\nprovider: ${!!provider}, isConnected: ${isConnected}, contractId: ${contractId}`);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : (typeof err === 'object' && err !== null && 'reason' in err ? String((err as { reason: unknown }).reason) : String(err));
+      setError(`Contract not found or error fetching details.\nError: ${errorMsg}\nprovider: ${!!provider}, isConnected: ${isConnected}, contractId: ${contractId}`);
       console.error('Error fetching contract details:', err);
     } finally {
       setLoading(false);
@@ -142,8 +152,9 @@ export default function ContractDetailsPage() {
       const tx = await athleteContract.activateContract(contractId);
       await tx.wait();
       await fetchContract();
-    } catch (err: any) {
-      setActionError("Failed to activate contract: " + (err.reason || err.message));
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : (typeof err === 'object' && err !== null && 'reason' in err ? String((err as { reason: unknown }).reason) : String(err));
+      setActionError("Failed to activate contract: " + errorMsg);
     } finally {
       setActionLoading(false);
     }
@@ -162,13 +173,24 @@ export default function ContractDetailsPage() {
       const tx = await athleteContract.raiseDispute(contractId, "Dispute raised from UI");
       await tx.wait();
       await fetchContract();
-    } catch (err: any) {
-      setActionError("Failed to raise dispute: " + (err.reason || err.message));
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : (typeof err === 'object' && err !== null && 'reason' in err ? String((err as { reason: unknown }).reason) : String(err));
+      setActionError("Failed to raise dispute: " + errorMsg);
     } finally {
       setActionLoading(false);
     }
   };
   // Add more handlers for other state changes as needed
+
+  // Show wallet not connected message
+  if (!isConnected || !provider) {
+    return (
+      <div className="max-w-xl mx-auto py-20 text-center">
+        <p className="text-blue-900 font-bold mb-4">Please connect your wallet to view contract details.</p>
+        <Link href="/contracts" className="text-blue-600 hover:underline">Back to Contracts</Link>
+      </div>
+    );
+  }
 
   if (loading) {
     return (

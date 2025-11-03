@@ -2,19 +2,16 @@
 
 import { useState } from 'react';
 import { useWeb3 } from '../../context/Web3Context';
-import { useRouter } from 'next/navigation';
 import { ethers } from 'ethers';
 import contractAddresses from '../../contract-addresses.json';
 import factoryAbi from '../../artifacts/contracts/AthleteChainFactory.sol/AthleteChainFactory.json';
 
 export default function RegisterPage() {
   const { isConnected, account, provider, connectWallet } = useWeb3();
-  const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [walletType, setWalletType] = useState('metamask');
-  const [registering, setRegistering] = useState(false);
   const [walletError, setWalletError] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
@@ -101,8 +98,9 @@ export default function RegisterPage() {
     setWalletError(null);
     try {
       await connectWallet(walletType, true);
-    } catch (error: any) {
-      setWalletError(error.message || 'Failed to connect wallet');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to connect wallet';
+      setWalletError(errorMessage);
       console.error('Failed to connect wallet:', error);
     }
   };
