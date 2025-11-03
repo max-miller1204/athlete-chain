@@ -10,7 +10,7 @@ import factoryAbi from '../../../artifacts/contracts/AthleteChainFactory.sol/Ath
 import athleteContractAbi from '../../../artifacts/contracts/AthleteContract.sol/AthleteContract.json';
 
 export default function NewContractPage() {
-  const { isConnected, account, factoryContract, provider } = useWeb3();
+  const { isConnected, account, provider } = useWeb3();
   const router = useRouter();
   const [formStep, setFormStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -264,7 +264,7 @@ export default function NewContractPage() {
       
       // Get contract ID from event logs
       const contractCreatedEvent = createReceipt.events?.find(
-        (e: any) => e.event === "ContractCreated"
+        (e: { event?: string }) => e.event === "ContractCreated"
       );
       
       if (!contractCreatedEvent) {

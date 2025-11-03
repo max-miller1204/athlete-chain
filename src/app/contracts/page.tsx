@@ -8,7 +8,7 @@ import { ethers } from 'ethers';
 import contractAddresses from '../../contract-addresses.json';
 import factoryAbi from '../../artifacts/contracts/AthleteChainFactory.sol/AthleteChainFactory.json';
 import athleteContractAbi from '../../artifacts/contracts/AthleteContract.sol/AthleteContract.json';
-import { usePathname, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 
 interface ContractData {
   id: number;
@@ -41,7 +41,6 @@ export default function ContractsPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
   const [error, setError] = useState<string | null>(null);
-  const pathname = usePathname();
   const searchParams = useSearchParams();
   
   // Check for newly created contract from URL params
@@ -61,9 +60,6 @@ export default function ContractsPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
-  
-  // Environment variable to control mock data - set to false to disable mock data
-  const useMockData = false;
 
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -402,18 +398,18 @@ export default function ContractsPage() {
                   : 'No contracts found'}
               </h3>
               <p className="text-gray-500 mb-2">
-                {filter !== 'all' 
-                  ? 'Try selecting a different filter or create a new contract' 
-                  : `You don't have any contracts yet. To get started, create your first contract.`}
+                {filter !== 'all'
+                  ? 'Try selecting a different filter or create a new contract'
+                  : "You don't have any contracts yet. To get started, create your first contract."}
               </p>
               
               <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 max-w-lg mx-auto my-4 text-left">
                 <h4 className="font-medium text-yellow-800 mb-2">Troubleshooting tips:</h4>
                 <ul className="text-sm text-yellow-700 space-y-1 list-disc pl-4">
-                  <li>Make sure you're connected with the correct wallet address</li>
+                  <li>Make sure you&apos;re connected with the correct wallet address</li>
                   <li>Check if your contracts were created under a different account</li>
                   <li>Verify the contract was deployed successfully by checking the console logs</li>
-                  <li>Try refreshing the page or clicking the "Fetch Contracts" button below</li>
+                  <li>Try refreshing the page or clicking the &quot;Fetch Contracts&quot; button below</li>
                 </ul>
               </div>
               

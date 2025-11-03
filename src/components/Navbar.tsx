@@ -44,8 +44,9 @@ export default function Navbar() {
       try {
         await connectWallet('metamask', true);
         setIsProfileOpen(false);
-      } catch (error: any) {
-        setWalletError(error.message || 'Failed to connect wallet');
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Failed to connect wallet';
+        setWalletError(errorMessage);
         console.error('Failed to connect wallet:', error);
       }
     }, 100);
@@ -56,8 +57,9 @@ export default function Navbar() {
     setWalletError(null);
     try {
       await connectWallet('metamask');
-    } catch (error: any) {
-      setWalletError(error.message || 'Failed to connect wallet');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to connect wallet';
+      setWalletError(errorMessage);
       console.error('Failed to connect wallet:', error);
     }
   };

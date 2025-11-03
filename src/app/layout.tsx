@@ -3,7 +3,6 @@ import type { Metadata } from 'next'
 import { Web3Provider } from '../context/Web3Context'
 import Navbar from '../components/Navbar'
 import { Suspense } from 'react'
-import contractAddresses from '../contract-addresses.json'
 
 export const metadata: Metadata = {
   title: 'AthleteChain - Decentralized Athlete Contract Platform',
@@ -24,7 +23,7 @@ export default function RootLayout({
             We're using a key prop with "web3" to ensure the provider is
             only mounted on the client side
           */}
-          <Web3Provider factoryAddress={contractAddresses.factoryAddress}>
+          <Web3Provider>
             <Navbar />
             <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
               {children}

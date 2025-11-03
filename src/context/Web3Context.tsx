@@ -61,8 +61,9 @@ export const Web3Provider = ({ children }: { children: ReactNode }) => {
             
             // Initialize provider
             provider = new ethers.providers.Web3Provider(window.ethereum);
-          } catch (requestError: any) {
-            throw new Error(`MetaMask account request failed: ${requestError.message || 'User rejected the request'}`);
+          } catch (requestError) {
+            const errorMessage = requestError instanceof Error ? requestError.message : 'User rejected the request';
+            throw new Error(`MetaMask account request failed: ${errorMessage}`);
           }
         } else {
           throw new Error('MetaMask is not installed');
@@ -75,8 +76,9 @@ export const Web3Provider = ({ children }: { children: ReactNode }) => {
           });
           await walletConnectProvider.enable();
           provider = new ethers.providers.Web3Provider(walletConnectProvider);
-        } catch (wcError: any) {
-          throw new Error(`WalletConnect initialization failed: ${wcError.message || 'Unknown error'}`);
+        } catch (wcError) {
+          const errorMessage = wcError instanceof Error ? wcError.message : 'Unknown error';
+          throw new Error(`WalletConnect initialization failed: ${errorMessage}`);
         }
       } else {
         throw new Error('Unsupported wallet type');
@@ -128,16 +130,17 @@ export const Web3Provider = ({ children }: { children: ReactNode }) => {
               });
             }
           }
-        } catch (contractError: any) {
+        } catch (contractError) {
           console.warn('Contract initialization failed, proceeding with limited functionality:', contractError);
         }
         
         // Clear disconnected flag
         localStorage.removeItem('wallet-disconnected');
-      } catch (providerError: any) {
-        throw new Error(`Error accessing wallet data: ${providerError.message || 'Unknown error'}`);
+      } catch (providerError) {
+        const errorMessage = providerError instanceof Error ? providerError.message : 'Unknown error';
+        throw new Error(`Error accessing wallet data: ${errorMessage}`);
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error connecting to wallet:', error);
       throw error; // Re-throw to allow components to handle the error
     }
@@ -161,7 +164,6 @@ export const Web3Provider = ({ children }: { children: ReactNode }) => {
     try {
       // First check if we're on the correct network
       const network = await provider.getNetwork();
-      const expectedChainId = process.env.NEXT_PUBLIC_CHAIN_ID || '31337'; // Default to Hardhat
       // Allow both 31337 (Hardhat default) and 1337 (local network) for development
       const validChainIds = ['31337', '1337'];
       if (!validChainIds.includes(network.chainId.toString())) {
@@ -184,12 +186,13 @@ export const Web3Provider = ({ children }: { children: ReactNode }) => {
       await contractVerificationPromise;
       console.log('Contract verification completed successfully');
       return true;
-    } catch (verifyError: any) {
+    } catch (verifyError) {
       // Don't log timeout errors as warnings since they're expected in some cases
-      if (verifyError.message !== 'Contract verification timed out') {
+      const errorMessage = verifyError instanceof Error ? verifyError.message : 'Unknown error';
+      if (errorMessage !== 'Contract verification timed out') {
         console.warn(
           'Contract verification warning:',
-          verifyError.message || 'Unknown error',
+          errorMessage,
           'Code may not be deployed on this network or network conditions may be slow'
         );
       }
@@ -201,14 +204,16 @@ export const Web3Provider = ({ children }: { children: ReactNode }) => {
     const isDisconnected = localStorage.getItem('wallet-disconnected') === 'true';
     if (!isDisconnected && typeof window.ethereum !== 'undefined') {
       window.ethereum.request({ method: 'eth_accounts' })
-        .then((accounts: string[]) => {
+        .then((result) => {
+          const accounts = result as string[];
           if (accounts.length > 0) {
             connectWallet('metamask');
           }
         })
-        .catch((err: any) => console.error(err));
+        .catch((err) => console.error(err));
 
-      window.ethereum.on('accountsChanged', (accounts: string[]) => {
+      window.ethereum.on('accountsChanged', (...args: unknown[]) => {
+        const accounts = args[0] as string[];
         if (accounts.length > 0) {
           localStorage.removeItem('wallet-disconnected');
           setAccount(prev => {
@@ -266,6 +271,10 @@ export const useWeb3 = () => {
 // Add types for window.ethereum
 declare global {
   interface Window {
-    ethereum: any;
+    ethereum: {
+      request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
+      on: (event: string, callback: (...args: unknown[]) => void) => void;
+      removeAllListeners: () => void;
+    };
   }
 }
